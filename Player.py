@@ -2,79 +2,67 @@ import pygame
 from pygame.locals import *
 import math
 from Projectile import Projectile
+from Movement import Movement
+from Globals import Globals
 
 class Player(pygame.sprite.Sprite):
     def __init__(self):
         super().__init__()
-        self.original_image = pygame.image.load("assets/PNG/Tanks/tankBlue.png").convert_alpha()
-        self.original_image = pygame.transform.rotate(self.original_image, 90)
-        self.original_image = pygame.transform.scale(self.original_image, (40, 40))
-        self.image = self.original_image.copy()
+        self.set_image("assets/PNG/Tanks/tankBlue.png")
         self.rect = self.image.get_rect()
         self.rect.center = (160, 520)
         self.angle = 0
-        self.speed = 3  # Add a speed attribute
+        self.speed = 3  
         self.projectile_group = pygame.sprite.Group()  # Group for projectiles
-        self.can_shoot = True  # Add a flag to control shooting rate
+        self.can_shoot = True  # Flag to prevent rapid fire
+        self.is_dead = False  # Flag to prevent movement and firing
 
-    def update(self, SCREEN_WIDTH, SCREEN_HEIGHT):
-        pressed_keys = pygame.key.get_pressed()
+        # Keep player within screen bounds 
+        self.rect.clamp_ip(pygame.Rect(0, 0, Globals.SCREEN_WIDTH, Globals.SCREEN_HEIGHT))
 
-        # Rotation
-        if pressed_keys[K_LEFT]:
-            self.angle += 3
-            self.rotate()
-        if pressed_keys[K_RIGHT]:
-            self.angle -= 3
-            self.rotate()
+    def set_image(self, image_path):
+        self.original_image = pygame.image.load(image_path).convert_alpha()
+        self.original_image = pygame.transform.rotate(self.original_image, 90)
+        self.original_image = pygame.transform.scale(self.original_image, (40, 40))
+        self.image = self.original_image.copy()
 
-        # Movement (forward/backward in direction of angle)
-        if pressed_keys[K_UP]:
-            self.move_forward(SCREEN_WIDTH, SCREEN_HEIGHT)
-        if pressed_keys[K_DOWN]:
-            self.move_backward(SCREEN_WIDTH, SCREEN_HEIGHT)
+    def update(self):
+        if not self.is_dead:
+            pressed_keys = pygame.key.get_pressed()
 
-        # Shooting
-        if pressed_keys[K_SPACE] and self.can_shoot:  # Check the flag
-            self.shoot()
-            self.can_shoot = False  # Prevent shooting again until released
+            # Shooting
+            if pressed_keys[K_SPACE] and self.can_shoot:  # Check the flag
+                self.shoot()
+                self.can_shoot = False  # Prevent shooting again until released
 
-        if not pressed_keys[K_SPACE]: #Reset the flag when the space bar is released
-            self.can_shoot = True
+            if not pressed_keys[K_SPACE]: #Reset the flag when the space bar is released
+                self.can_shoot = True
+
+            # Rotation
+            if pressed_keys[K_a]:
+                self.angle += 3
+                self.rotate()
+            if pressed_keys[K_d]:
+                self.angle -= 3
+                self.rotate()
+
+            # Movement (forward/backward in direction of angle)
+            if pressed_keys[K_w]:
+                self.move_forward()
+            if pressed_keys[K_s]:
+                self.move_backward()
 
         # Update projectiles
-        self.projectile_group.update(SCREEN_WIDTH, SCREEN_HEIGHT)
+        self.projectile_group.update()
+        self.check_collisions()
 
-    def shoot(self):
-        # Calculate projectile starting position *outside* the player
-        projectile_x = self.rect.centerx + (self.image.get_width() / 2 + 20) * math.cos(math.radians(self.angle))
-        projectile_y = self.rect.centery - (self.image.get_height() / 2 + 20) * math.sin(math.radians(self.angle))
-        projectile_position = (projectile_x, projectile_y)
+    def move_forward(self):
+        self.rect.x = Movement.calc_move_x(self.speed, self.angle, self.rect.x)
+        self.rect.y = Movement.calc_move_y(self.speed, self.angle, self.rect.y)
 
-        projectile = Projectile(projectile_position, self.angle)
-        self.projectile_group.add(projectile)
-
-    def move_forward(self, SCREEN_WIDTH, SCREEN_HEIGHT):
-        # Calculate movement based on angle
-        dx = self.speed * math.cos(math.radians(self.angle))
-        dy = self.speed * math.sin(math.radians(self.angle))
-
-        self.rect.x += dx
-        self.rect.y -= dy  # Subtract dy because pygame's y-axis is inverted
-
-        # Keep player within screen bounds (optional, but recommended)
-        self.rect.clamp_ip(pygame.Rect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT))  #clamp_ip keeps the sprite within the rectangle
-
-    def move_backward(self, SCREEN_WIDTH, SCREEN_HEIGHT):
-        # Calculate movement based on angle (opposite direction)
-        dx = -self.speed * math.cos(math.radians(self.angle))
-        dy = -self.speed * math.sin(math.radians(self.angle))
-
-        self.rect.x += dx
-        self.rect.y -= dy  # Subtract dy because pygame's y-axis is inverted
-
-        # Keep player within screen bounds (optional, but recommended)
-        self.rect.clamp_ip(pygame.Rect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT))
+    def move_backward(self):
+        self.rect.x = Movement.calc_move_x(-self.speed, self.angle, self.rect.x)
+        self.rect.y = Movement.calc_move_y(-self.speed, self.angle, self.rect.y)
 
     def rotate(self):
         self.image = pygame.transform.rotate(self.original_image, self.angle)
@@ -82,4 +70,24 @@ class Player(pygame.sprite.Sprite):
 
     def draw(self, surface):
         surface.blit(self.image, self.rect)
-        self.projectile_group.draw(surface) #Draw projectiles
+        self.projectile_group.draw(surface)
+
+    def shoot(self):
+        # Calculate projectile starting position outside the player
+        projectile_position = Movement.calc_projectile_starting_point(
+            self.rect.centerx, 
+            self.rect.centery, 
+            self.image.get_width(), 
+            self.image.get_height(), 
+            self.angle
+        )
+
+        self.projectile_group.add(
+            Projectile(projectile_position, self.angle)
+        )
+
+    def check_collisions(self):
+        for projectile in self.projectile_group:
+            if pygame.sprite.collide_rect(projectile, self):  # Check for collision
+                self.original_image = self.set_image("assets/PNG/Smoke/smokeGrey5.png")
+                self.is_dead = True
